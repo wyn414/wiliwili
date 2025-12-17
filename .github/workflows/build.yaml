@@ -47,13 +47,12 @@ jobs:
           autoconf automake libtool \
           wget
 
-    # ---------- 3. 编译 SDL2 ----------
+    # ---------- 3. 编译 SDL2（OpenGLES） ----------
     - name: Build SDL2 (OpenGLES)
       run: |
         git clone --depth 1 https://github.com/libsdl-org/SDL.git SDL2
         cd SDL2
-        # checkout 最新稳定 SDL2 2.30 系列 tag
-        git checkout release-2.30.9
+        git checkout release-2.30.54
         mkdir build && cd build
         cmake .. \
           -DCMAKE_SYSTEM_NAME=Linux \
