@@ -2,17 +2,26 @@ name: Build wiliwili + MPV for RG35XX Pro (aarch64)
 
 on:
   push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 120
+    timeout-minutes: 150
 
     env:
+      CC: aarch64-linux-gnu-gcc
+      CXX: aarch64-linux-gnu-g++
+      AR: aarch64-linux-gnu-ar
+      LD: aarch64-linux-gnu-ld
+      STRIP: aarch64-linux-gnu-strip
+      PKG_CONFIG: aarch64-linux-gnu-pkg-config
+      PKG_CONFIG_PATH: /usr/aarch64-linux-gnu/lib/pkgconfig:${{ github.workspace }}/install/lib/pkgconfig
       PREFIX: ${{ github.workspace }}/install
-      SDL2_DIR: ${{ github.workspace }}/SDL2/install
-      MPV_DIR: ${{ github.workspace }}/mpv/install
+      SYSROOT: /usr/aarch64-linux-gnu
 
     steps:
     # 1) 检出仓库并拉取子模块
@@ -20,93 +29,264 @@ jobs:
       uses: actions/checkout@v4
       with:
         submodules: recursive
+        fetch-depth: 0
 
-    # 2) 安装基础依赖
-    - name: Install build dependencies
+    # 2) 安装完整交叉编译工具链和依赖
+    - name: Install complete cross-compilation toolchain
       run: |
         sudo apt update
         sudo apt install -y \
-          git cmake ninja-build pkg-config python3 python3-pip \
-          gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-          libgles2-mesa-dev libegl1-mesa-dev \
-          libx11-dev libxext-dev libxrandr-dev libxi-dev \
-          libxinerama-dev libxcursor-dev libxfixes-dev \
-          yasm autoconf automake libtool wget
+          git cmake ninja-build pkg-config python3 python3-pip meson \
+          gcc-aarch64-linux-gnu g++-aarch64-linux-gnu gcc-aarch64-linux-gnu \
+          binutils-aarch64-linux-gnu \
+          libgles2-mesa-dev:arm64 libegl1-mesa-dev:arm64 \
+          libdrm-dev:arm64 libgbm-dev:arm64 \
+          libx11-dev:arm64 libxext-dev:arm64 libxrandr-dev:arm64 \
+          libxi-dev:arm64 libxinerama-dev:arm64 libxcursor-dev:arm64 \
+          libxfixes-dev:arm64 libxkbcommon-dev:arm64 \
+          libavcodec-dev:arm64 libavformat-dev:arm64 libavutil-dev:arm64 \
+          libavdevice-dev:arm64 libavfilter-dev:arm64 libswscale-dev:arm64 \
+          libswresample-dev:arm64 \
+          libluajit-5.1-dev:arm64 \
+          libfreetype6-dev:arm64 libfontconfig1-dev:arm64 \
+          libfribidi-dev:arm64 libharfbuzz-dev:arm64 \
+          libmpv-dev:arm64 \
+          libass-dev:arm64 \
+          libplacebo-dev:arm64 \
+          libvulkan-dev:arm64 \
+          libwayland-dev:arm64 libwayland-egl-backend-dev:arm64 \
+          libpulse-dev:arm64 libasound2-dev:arm64 \
+          yasm nasm autoconf automake libtool gettext \
+          wget curl build-essential flex bison
 
-    # 3) Checkout & build SDL2
-    - name: Build SDL2 (OpenGLES)
+    # 3) 设置环境变量
+    - name: Setup environment
       run: |
-        git clone --depth 1 https://github.com/libsdl-org/SDL.git SDL2
+        echo "CC=$CC" >> $GITHUB_ENV
+        echo "CXX=$CXX" >> $GITHUB_ENV
+        echo "AR=$AR" >> $GITHUB_ENV
+        echo "PKG_CONFIG=$PKG_CONFIG" >> $GITHUB_ENV
+        echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH" >> $GITHUB_ENV
+        echo "PREFIX=$PREFIX" >> $GITHUB_ENV
+        echo "SYSROOT=$SYSROOT" >> $GITHUB_ENV
+        echo "CFLAGS=-O2 -mcpu=cortex-a55 -mtune=cortex-a55 -fomit-frame-pointer" >> $GITHUB_ENV
+        echo "CXXFLAGS=-O2 -mcpu=cortex-a55 -mtune=cortex-a55 -fomit-frame-pointer" >> $GITHUB_ENV
+
+    # 4) 创建安装目录
+    - name: Create installation directories
+      run: |
+        mkdir -p ${{ github.workspace }}/install
+        mkdir -p ${{ github.workspace }}/install/lib/pkgconfig
+        mkdir -p ${{ github.workspace }}/install/include
+
+    # 5) 构建 SDL2（修正版本）
+    - name: Build SDL2 for aarch64
+      run: |
+        cd ${{ github.workspace }}
+        git clone --depth 1 --branch release-2.30.3 https://github.com/libsdl-org/SDL.git SDL2
         cd SDL2
-        git fetch origin SDL2:SDL2
-        git checkout SDL2
-        git checkout release-2.30.3
         mkdir build && cd build
+        
+        # 配置 SDL2
         cmake .. \
           -DCMAKE_SYSTEM_NAME=Linux \
-          -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-          -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
-          -DSDL_SHARED=OFF \
-          -DSDL_STATIC=ON \
+          -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+          -DCMAKE_C_COMPILER=$CC \
+          -DCMAKE_CXX_COMPILER=$CXX \
+          -DCMAKE_AR=$AR \
+          -DCMAKE_FIND_ROOT_PATH=$SYSROOT \
+          -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+          -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+          -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+          -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+          -DCMAKE_INSTALL_PREFIX=$PREFIX \
+          -DSDL_SHARED=ON \
+          -DSDL_STATIC=OFF \
+          -DSDL_TEST=OFF \
+          -DSDL_VIDEO=ON \
           -DSDL_VIDEO_OPENGL=OFF \
           -DSDL_VIDEO_OPENGL_ES=ON \
           -DSDL_OPENGLES=ON \
-          -DSDL_VIDEO_X11=OFF \
-          -DSDL_VIDEO_WAYLAND=OFF \
-          -DSDL_VIDEO_KMSDRM=ON \
-          -DSDL_VIDEO_FBDEV=ON \
-          -DCMAKE_INSTALL_PREFIX=$PWD/install
+          -DSDL_VIDEO_OPENGL_ES2=ON \
+          -DSDL_VIDEO_DRIVER_KMSDRM=ON \
+          -DSDL_VIDEO_DRIVER_FBDEV=ON \
+          -DSDL_VIDEO_DRIVER_X11=OFF \
+          -DSDL_VIDEO_DRIVER_WAYLAND=OFF \
+          -DSDL_VIDEO_DRIVER_RPI=OFF \
+          -DSDL_AUDIO=ON \
+          -DSDL_PULSEAUDIO=ON \
+          -DSDL_ALSA=ON \
+          -DSDL_JACK=OFF \
+          -DSDL_ESD=OFF \
+          -DSDL_ARTS=OFF \
+          -DSDL_NAS=OFF \
+          -DSDL_SNDIO=OFF \
+          -DSDL_FUSIONSOUND=OFF \
+          -DSDL_LIBSAMPLERATE=OFF \
+          -DSDL_INPUT_LINUXEV=ON \
+          -DSDL_INPUT_LINUXKD=ON \
+          -DSDL_THREADS=ON \
+          -DSDL_TIMERS=ON \
+          -DSDL_FILE=ON \
+          -DSDL_LOADSO=ON \
+          -DSDL_ATOMIC=ON \
+          -DSDL_AUDIO_DRIVER_PULSEAUDIO_DYNAMIC=ON \
+          -DSDL_AUDIO_DRIVER_ALSA_DYNAMIC=ON
+        
         make -j$(nproc)
         make install
 
-    # 4) Download & build MPV
-    - name: Download and build MPV
+    # 6) 构建 MPV（简化配置）
+    - name: Build MPV for aarch64
       run: |
-        wget https://github.com/mpv-player/mpv/archive/refs/tags/v1.36.0.tar.gz
-        tar xf v1.36.0.tar.gz
-        mv mpv-1.36.0 mpv
-        cd mpv
-        mkdir build && cd build
-        PKG_CONFIG_PATH=$MPV_DIR/lib/pkgconfig \
-        CC=aarch64-linux-gnu-gcc \
-        CXX=aarch64-linux-gnu-g++ \
-        ../waf configure \
-          --prefix=$MPV_DIR \
-          --cross-compile \
-          --enable-static-build \
+        cd ${{ github.workspace }}
+        git clone --depth 1 --branch v0.36.0 https://github.com/mpv-player/mpv.git mpv-src
+        cd mpv-src
+        
+        # MPV 需要的一些额外依赖
+        ./bootstrap.py
+        
+        # 配置 MPV
+        ./waf configure \
+          --prefix=$PREFIX \
+          --cc=$CC \
+          --cxx=$CXX \
+          --ar=$AR \
+          --pkg-config=$PKG_CONFIG \
+          --enable-egl-drm \
+          --enable-drm \
+          --enable-gbm \
+          --enable-egl \
+          --enable-gl \
           --enable-gles2 \
-          --disable-gl \
-          --disable-libass \
-          --disable-lua \
-          --disable-joystick \
-          --disable-alsa \
-          --disable-pulse \
+          --enable-libmpv-shared \
           --disable-cplayer \
           --disable-build-date \
-          --disable-tools
-        ../waf build -j$(nproc)
-        ../waf install
+          --disable-debug-build \
+          --disable-manpage-build \
+          --disable-swift \
+          --disable-pulse \
+          --disable-alsa \
+          --disable-jack \
+          --disable-openal \
+          --disable-oss-audio \
+          --disable-sdl2-audio \
+          --disable-sdl2-gamepad \
+          --disable-sdl2-video \
+          --disable-vapoursynth \
+          --disable-vapoursynth-lazy \
+          --disable-rubberband \
+          --disable-lcms2 \
+          --disable-vulkan \
+          --disable-spirv-cross \
+          --disable-shaderc \
+          --disable-vaapi \
+          --disable-vaapi-drm \
+          --disable-vaapi-wayland \
+          --disable-vaapi-x11 \
+          --disable-vdpau \
+          --disable-vdpau-gl-x11 \
+          --disable-wayland \
+          --disable-x11 \
+          --disable-xv \
+          --disable-sdl2 \
+          --cross-compile
+        
+        ./waf build -j$(nproc)
+        ./waf install
 
-    # 5) Build wiliwili
+    # 7) 构建 wiliwili
     - name: Build wiliwili
       run: |
-        mkdir build && cd build
+        cd ${{ github.workspace }}
+        mkdir -p build && cd build
+        
+        # 设置 pkg-config 路径
+        export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH
+        export LD_LIBRARY_PATH=$PREFIX/lib:$LD_LIBRARY_PATH
+        
+        # 配置 wiliwili
         cmake .. \
           -DCMAKE_SYSTEM_NAME=Linux \
-          -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-          -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
-          -DCMAKE_PREFIX_PATH="$SDL2_DIR;$MPV_DIR" \
+          -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+          -DCMAKE_C_COMPILER=$CC \
+          -DCMAKE_CXX_COMPILER=$CXX \
+          -DCMAKE_AR=$AR \
+          -DCMAKE_FIND_ROOT_PATH=$SYSROOT:$PREFIX \
+          -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+          -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+          -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+          -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+          -DCMAKE_PREFIX_PATH=$PREFIX \
+          -DCMAKE_INSTALL_PREFIX=$PREFIX \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DSDL2_DIR=$PREFIX/lib/cmake/SDL2 \
           -DWILIWILI_USE_SDL2=ON \
           -DWILIWILI_USE_OPENGL=OFF \
           -DWILIWILI_USE_OPENGL_ES=ON \
           -DWILIWILI_USE_VULKAN=OFF \
-          -DPLATFORM_DESKTOP=ON \
-          -DWILIWILI_USE_MPV=ON
-        make -j$(nproc)
+          -DWILIWILI_USE_MPV=ON \
+          -DPLATFORM_DESKTOP=OFF \
+          -DCMAKE_EXE_LINKER_FLAGS="-Wl,-rpath,$PREFIX/lib -L$PREFIX/lib" \
+          -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-rpath,$PREFIX/lib"
+        
+        make -j$(nproc) VERBOSE=1
 
-    # 6) Upload artifact
+    # 8) 检查生成的可执行文件
+    - name: Check binary
+      run: |
+        cd ${{ github.workspace }}/build
+        file wiliwili
+        echo "Checking dependencies:"
+        aarch64-linux-gnu-ldd wiliwili || true
+        echo "Binary size:"
+        ls -lh wiliwili
+
+    # 9) 打包所有必要文件
+    - name: Package artifacts
+      run: |
+        cd ${{ github.workspace }}
+        mkdir -p dist/rg35xxpro
+        
+        # 复制可执行文件
+        cp build/wiliwili dist/rg35xxpro/
+        
+        # 复制必要的库
+        mkdir -p dist/rg35xxpro/lib
+        cp -r install/lib/*.so* dist/rg35xxpro/lib/ 2>/dev/null || true
+        
+        # 创建启动脚本
+        cat > dist/rg35xxpro/start.sh << 'EOF'
+        #!/bin/bash
+        export LD_LIBRARY_PATH=./lib:$LD_LIBRARY_PATH
+        export SDL_VIDEODRIVER=fbcon
+        export SDL_AUDIODRIVER=alsa
+        ./wiliwili
+        EOF
+        chmod +x dist/rg35xxpro/start.sh
+        
+        # 创建说明文件
+        cat > dist/rg35xxpro/README.txt << 'EOF'
+        wiliwili for RG35XX Pro (aarch64)
+        =================================
+        
+        1. 将所有文件复制到 RG35XX Pro 的 SD 卡
+        2. 确保设备已开启 SSH 或通过其他方式访问
+        3. 运行: chmod +x start.sh
+        4. 运行: ./start.sh
+        
+        依赖:
+        - SDL2 2.30.3
+        - MPV 0.36.0
+        - OpenGL ES 2.0
+        
+        构建日期: $(date)
+        EOF
+
+    # 10) 上传制品
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: wiliwili-rg35xxpro-aarch64
-        path: build/wiliwili
+        path: ${{ github.workspace }}/dist/rg35xxpro/*
+        retention-days: 7
