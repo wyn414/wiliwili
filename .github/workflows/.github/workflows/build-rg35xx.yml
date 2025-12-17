@@ -1,0 +1,56 @@
+name: Build wiliwili for RG35XX Pro (SDL2 + OpenGLES)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+
+    - name: Install build tools
+      run: |
+        sudo apt update
+        sudo apt install -y \
+          gcc-arm-linux-gnueabihf \
+          g++-arm-linux-gnueabihf \
+          cmake \
+          autoconf automake libtool \
+          pkg-config \
+          git
+
+    - name: Build SDL2 (KMSDRM + OpenGLES)
+      run: |
+        git clone --depth=1 https://github.com/libsdl-org/SDL.git
+        cd SDL
+        ./autogen.sh
+        ./configure \
+          --host=arm-linux-gnueabihf \
+          --disable-video-x11 \
+          --enable-video-kmsdrm \
+          --enable-video-opengles \
+          --disable-pulseaudio \
+          --disable-alsa \
+          --prefix=$PWD/install
+        make -j$(nproc)
+        make install
+
+    - name: Build wiliwili
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. \
+          -DCMAKE_TOOLCHAIN_FILE=toolchain/arm-linux-gnueabihf.cmake \
+          -DSDL2_DIR=$GITHUB_WORKSPACE/SDL/install \
+          -DCMAKE_BUILD_TYPE=Release
+        make -j$(nproc)
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: wiliwili
