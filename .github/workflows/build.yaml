@@ -15,44 +15,32 @@ jobs:
       MPV_DIR: ${{ github.workspace }}/mpv/install
 
     steps:
+    # 1) 检出仓库并拉取子模块
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         submodules: recursive
 
+    # 2) 安装基础依赖
     - name: Install build dependencies
       run: |
         sudo apt update
         sudo apt install -y \
-          git \
-          cmake \
-          ninja-build \
-          pkg-config \
-          python3 \
-          python3-pip \
-          gcc-aarch64-linux-gnu \
-          g++-aarch64-linux-gnu \
-          libgles2-mesa-dev \
-          libegl1-mesa-dev \
-          libx11-dev \
-          libxext-dev \
-          libxrandr-dev \
-          libxi-dev \
-          libxinerama-dev \
-          libxcursor-dev \
-          libxfixes-dev \
-          yasm \
-          autoconf automake libtool \
-          wget
+          git cmake ninja-build pkg-config python3 python3-pip \
+          gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+          libgles2-mesa-dev libegl1-mesa-dev \
+          libx11-dev libxext-dev libxrandr-dev libxi-dev \
+          libxinerama-dev libxcursor-dev libxfixes-dev \
+          yasm autoconf automake libtool wget
 
-    # ---------- Correct SDL2 build: checkout SDL2 branch and tag ----------
+    # 3) Checkout & build SDL2
     - name: Build SDL2 (OpenGLES)
       run: |
         git clone --depth 1 https://github.com/libsdl-org/SDL.git SDL2
         cd SDL2
-        git fetch --depth 1 origin SDL2
+        git fetch origin SDL2:SDL2
         git checkout SDL2
-        git checkout release-2.30.10
+        git checkout release-2.30.3
         mkdir build && cd build
         cmake .. \
           -DCMAKE_SYSTEM_NAME=Linux \
@@ -71,6 +59,7 @@ jobs:
         make -j$(nproc)
         make install
 
+    # 4) Download & build MPV
     - name: Download and build MPV
       run: |
         wget https://github.com/mpv-player/mpv/archive/refs/tags/v1.36.0.tar.gz
@@ -90,7 +79,6 @@ jobs:
           --disable-libass \
           --disable-lua \
           --disable-joystick \
-          --disable-drmprime \
           --disable-alsa \
           --disable-pulse \
           --disable-cplayer \
@@ -99,6 +87,7 @@ jobs:
         ../waf build -j$(nproc)
         ../waf install
 
+    # 5) Build wiliwili
     - name: Build wiliwili
       run: |
         mkdir build && cd build
@@ -115,6 +104,7 @@ jobs:
           -DWILIWILI_USE_MPV=ON
         make -j$(nproc)
 
+    # 6) Upload artifact
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
