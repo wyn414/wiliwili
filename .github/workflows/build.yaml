@@ -8,16 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 120
-
-    env:
-      ARCH: aarch64
-      CPU: cortex-a55
-      CC: aarch64-linux-gnu-gcc
-      CXX: aarch64-linux-gnu-g++
-      AR: aarch64-linux-gnu-ar
-      STRIP: aarch64-linux-gnu-strip
-      INSTALL_DIR: ${{ github.workspace }}/install
+    timeout-minutes: 60
 
     steps:
     # 1) 检出代码
@@ -27,339 +18,71 @@ jobs:
         submodules: recursive
         fetch-depth: 0
 
-    # 2) 安装交叉编译工具链和依赖
-    - name: Install cross-compilation dependencies
+    # 2) 安装交叉编译工具链和必要工具
+    - name: Install toolchain
       run: |
         sudo apt-get update
         sudo apt-get install -y \
           cmake \
           ninja-build \
           pkg-config \
-          meson \
-          python3 \
-          python3-pip \
-          wget \
-          curl \
-          tar \
-          gzip \
-          unzip \
-          autoconf \
-          automake \
-          libtool \
-          yasm \
-          nasm \
-          flex \
-          bison
-        
-        # 安装交叉编译工具链
-        sudo apt-get install -y \
           gcc-aarch64-linux-gnu \
           g++-aarch64-linux-gnu \
           binutils-aarch64-linux-gnu \
-          gcc-aarch64-linux-gnu \
-          g++-aarch64-linux-gnu
-        
-        # 安装主机架构的开发库（用于构建工具）
-        sudo apt-get install -y \
-          libsdl2-dev \
-          libmpv-dev \
-          libavcodec-dev \
-          libavformat-dev \
-          libavutil-dev \
-          libswscale-dev \
-          libass-dev \
-          libluajit-5.1-dev \
-          libuchardet-dev \
-          libplacebo-dev \
-          libdrm-dev \
-          libgbm-dev \
-          libegl1-mesa-dev \
-          libgles2-mesa-dev \
-          libx11-dev \
-          libxext-dev \
-          libxrandr-dev \
-          libxi-dev \
-          libxinerama-dev \
-          libxcursor-dev \
-          libxfixes-dev
+          python3 \
+          python3-pip \
+          wget \
+          curl
 
-    # 3) 创建安装目录
-    - name: Create directories
-      run: |
-        mkdir -p ${{ env.INSTALL_DIR }}
-        mkdir -p ${{ env.INSTALL_DIR }}/lib
-        mkdir -p ${{ env.INSTALL_DIR }}/include
-        mkdir -p ${{ env.INSTALL_DIR }}/bin
-        mkdir -p ${{ env.INSTALL_DIR }}/share
-
-    # 4) 构建 libmpv（按照原项目的配置）
-    - name: Build libmpv
-      run: |
-        cd ${{ github.workspace }}
-        
-        echo "下载 MPV 源码..."
-        wget -O mpv.tar.gz https://github.com/mpv-player/mpv/archive/refs/tags/v0.39.0.tar.gz
-        tar -xzf mpv.tar.gz
-        mv mpv-0.39.0 mpv_src
-        
-        cd mpv_src
-        
-        echo "运行引导脚本..."
-        ./bootstrap.py
-        
-        echo "配置 MPV 环境..."
-        export CC="aarch64-linux-gnu-gcc"
-        export CXX="aarch64-linux-gnu-g++"
-        export AR="aarch64-linux-gnu-ar"
-        export PKG_CONFIG="aarch64-linux-gnu-pkg-config"
-        export PKG_CONFIG_PATH="/usr/aarch64-linux-gnu/lib/pkgconfig:${{ env.INSTALL_DIR }}/lib/pkgconfig"
-        export CFLAGS="-mcpu=${{ env.CPU }} -mtune=${{ env.CPU }} -fPIC -O2"
-        export CXXFLAGS="-mcpu=${{ env.CPU }} -mtune=${{ env.CPU }} -fPIC -O2"
-        export LDFLAGS="-Wl,-rpath-link,/usr/aarch64-linux-gnu/lib -L${{ env.INSTALL_DIR }}/lib"
-        
-        echo "配置 MPV..."
-        # 按照原项目的配置：启用 libmpv，禁用 vulkan，启用 lua
-        ./waf configure \
-          --prefix=${{ env.INSTALL_DIR }} \
-          --enable-libmpv \
-          --enable-lua \
-          --disable-vulkan \
-          --disable-cplayer \
-          --disable-build-date \
-          --disable-debug-build \
-          --disable-manpage-build \
-          --cross-compile
-        
-        echo "编译 MPV..."
-        ./waf build -j$(nproc)
-        
-        echo "安装 MPV..."
-        ./waf install
-        
-        echo "MPV 构建完成"
-
-    # 5) 构建其他依赖库
-    - name: Build additional dependencies
-      run: |
-        cd ${{ github.workspace }}
-        
-        echo "构建 libass..."
-        wget -O libass.tar.gz https://github.com/libass/libass/releases/download/0.17.3/libass-0.17.3.tar.gz
-        tar -xzf libass.tar.gz
-        cd libass-0.17.3
-        
-        ./configure \
-          --host=aarch64-linux-gnu \
-          --prefix=${{ env.INSTALL_DIR }} \
-          --disable-static \
-          --enable-shared
-        
-        make -j$(nproc)
-        make install
-        cd ..
-
-    # 6) 构建 wiliwili（使用原项目的配置）
+    # 3) 构建 wiliwili（最简单的配置）
     - name: Build wiliwili
       run: |
         cd ${{ github.workspace }}
         
-        echo "=== 构建 wiliwili ==="
+        echo "=== 创建构建目录 ==="
+        mkdir -p build
+        cd build
         
-        # 设置环境变量
-        export CC="aarch64-linux-gnu-gcc"
-        export CXX="aarch64-linux-gnu-g++"
-        export AR="aarch64-linux-gnu-ar"
-        export PKG_CONFIG="aarch64-linux-gnu-pkg-config"
-        export PKG_CONFIG_PATH="${{ env.INSTALL_DIR }}/lib/pkgconfig:/usr/aarch64-linux-gnu/lib/pkgconfig"
-        export CFLAGS="-mcpu=${{ env.CPU }} -mtune=${{ env.CPU }} -fPIC -O2"
-        export CXXFLAGS="-mcpu=${{ env.CPU }} -mtune=${{ env.CPU }} -fPIC -O2"
-        export LDFLAGS="-Wl,-rpath-link,${{ env.INSTALL_DIR }}/lib -Wl,-rpath-link,/usr/aarch64-linux-gnu/lib"
+        echo "=== 配置 wiliwili ==="
         
-        # 创建构建目录
-        mkdir -p build && cd build
-        
-        echo "配置 wiliwili..."
-        # 使用原项目的配置选项
+        # 最简单的配置，先确保能通过 toolchain.cmake 的检查
         cmake .. \
-          -DCMAKE_C_COMPILER="$CC" \
-          -DCMAKE_CXX_COMPILER="$CXX" \
-          -DCMAKE_AR="$AR" \
+          -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+          -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
           -DCMAKE_BUILD_TYPE=Release \
-          # 关键：按照原项目的配置
           -DPLATFORM_DESKTOP=ON \
-          -DINSTALL=ON \
-          -DUSE_SYSTEM_CURL=ON \
-          -DUSE_GLES2=OFF \        # 注意：原项目禁用 GLES2
-          -DUSE_EGL=ON \           # 原项目启用 EGL
-          -DBRLS_UNITY_BUILD=ON \
-          -DCMAKE_UNITY_BUILD_BATCH_SIZE=16 \
-          # 图形后端配置
-          -DWILIWILI_USE_SDL2=ON \
-          -DWILIWILI_USE_OPENGL=ON \    # 使用 OpenGL（原项目配置）
-          -DWILIWILI_USE_OPENGL_ES=OFF \
-          -DWILIWILI_USE_VULKAN=OFF \
-          -DWILIWILI_USE_MPV=ON \
-          # 库路径
-          -DCMAKE_PREFIX_PATH="${{ env.INSTALL_DIR }}" \
-          -DCMAKE_INSTALL_PREFIX="${{ env.INSTALL_DIR }}" \
-          # 编译器标志
-          -DCMAKE_C_FLAGS="$CFLAGS" \
-          -DCMAKE_CXX_FLAGS="$CXXFLAGS" \
-          -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS"
+          -DWILIWILI_USE_MPV=OFF \
+          -DUSE_SYSTEM_SDL2=OFF \
+          -DUSE_LIBROMFS=ON \
+          -DUSE_SYSTEM_CURL=ON
         
-        echo "编译 wiliwili..."
+        echo "=== 开始编译 ==="
         make -j$(nproc)
         
         if [ -f "wiliwili" ]; then
-          echo "✅ wiliwili 构建成功！"
+          echo "✅ 构建成功！"
           echo "文件信息："
           file wiliwili
-          echo "文件大小："
+          echo "大小："
           ls -lh wiliwili
           
-          # 安装到指定目录
-          make install
+          # 检查架构
+          echo "架构："
+          aarch64-linux-gnu-objdump -f wiliwili 2>/dev/null | grep "architecture" || echo "使用 file 命令："
+          file wiliwili
         else
-          echo "❌ 构建失败"
+          echo "❌ 未找到可执行文件 wiliwili"
           echo "当前目录内容："
           ls -la
+          echo "尝试查找任何可执行文件："
+          find . -type f -executable | head -10
           exit 1
         fi
 
-    # 7) 收集动态库依赖
-    - name: Collect dependencies
-      run: |
-        cd ${{ github.workspace }}
-        
-        echo "收集动态库依赖..."
-        
-        # 创建分发目录
-        DIST_DIR="dist/wiliwili_rg35xxpro"
-        mkdir -p $DIST_DIR
-        mkdir -p $DIST_DIR/lib
-        
-        # 复制可执行文件
-        cp ${{ env.INSTALL_DIR }}/bin/wiliwili $DIST_DIR/
-        chmod +x $DIST_DIR/wiliwili
-        
-        # 收集依赖库
-        echo "收集 wiliwili 的依赖库..."
-        DEPS=$(aarch64-linux-gnu-readelf -d $DIST_DIR/wiliwili 2>/dev/null | grep "NEEDED" | sed -e 's/.*\[//' -e 's/\]//' || true)
-        
-        echo "找到的依赖："
-        echo "$DEPS"
-        
-        # 复制依赖库
-        for lib in $DEPS; do
-          echo "查找库: $lib"
-          # 在我们安装的目录中查找
-          find ${{ env.INSTALL_DIR }}/lib -name "$lib" -exec cp -L {} $DIST_DIR/lib/ \; 2>/dev/null || true
-          # 在系统目录中查找
-          find /usr/aarch64-linux-gnu/lib -name "$lib" -exec cp -L {} $DIST_DIR/lib/ \; 2>/dev/null || true
-          find /lib/aarch64-linux-gnu -name "$lib" -exec cp -L {} $DIST_DIR/lib/ \; 2>/dev/null || true
-        done
-        
-        # 复制我们构建的特定库
-        cp ${{ env.INSTALL_DIR }}/lib/libmpv*.so* $DIST_DIR/lib/ 2>/dev/null || true
-        cp ${{ env.INSTALL_DIR }}/lib/libass*.so* $DIST_DIR/lib/ 2>/dev/null || true
-
-    # 8) 创建启动脚本
-    - name: Create launch script
-      run: |
-        cd ${{ github.workspace }}/dist/wiliwili_rg35xxpro
-        
-        echo "创建启动脚本..."
-        
-        cat > launch.sh << 'EOF'
-        #!/bin/bash
-        # wiliwili 启动脚本 for RG35XX Pro
-        
-        SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-        
-        # 设置库路径
-        export LD_LIBRARY_PATH="$SCRIPT_DIR/lib:$LD_LIBRARY_PATH"
-        
-        # SDL2 配置
-        # RG35XX Pro 通常使用 KMS/DRM
-        export SDL_VIDEODRIVER=${SDL_VIDEODRIVER:-kmsdrm}
-        export SDL_AUDIODRIVER=${SDL_AUDIODRIVER:-alsa}
-        
-        # EGL 配置
-        export EGL_PLATFORM=${EGL_PLATFORM:-drm}
-        
-        echo "启动 wiliwili for RG35XX Pro..."
-        echo "视频驱动: $SDL_VIDEODRIVER"
-        echo "音频驱动: $SDL_AUDIODRIVER"
-        echo "EGL 平台: $EGL_PLATFORM"
-        echo "库路径: $LD_LIBRARY_PATH"
-        
-        # 运行 wiliwili
-        cd "$SCRIPT_DIR"
-        exec ./wiliwili "$@"
-        EOF
-        
-        chmod +x launch.sh
-        
-        # 创建 README
-        cat > README.md << 'EOF'
-        # wiliwili for RG35XX Pro
-        
-        ## 构建信息
-        - 架构: aarch64 (ARM64)
-        - CPU: Cortex-A55
-        - 图形: SDL2 + EGL (使用 OpenGL)
-        - 平台: 桌面模式
-        - MPV 版本: 0.39.0
-        - libass 版本: 0.17.3
-        
-        ## 重要配置
-        根据原项目配置，此版本使用 **EGL** 而不是 OpenGL ES。
-        
-        ## 使用方法
-        1. 将所有文件复制到 RG35XX Pro
-        2. 运行:
-           ```bash
-           chmod +x launch.sh
-           ./launch.sh
-           ```
-        
-        3. 如果无法启动，尝试不同的 SDL 驱动:
-           ```bash
-           # KMS/DRM 驱动
-           SDL_VIDEODRIVER=kmsdrm ./launch.sh
-           
-           # FBDEV 驱动
-           SDL_VIDEODRIVER=fbdev ./launch.sh
-           
-           # 虚拟驱动（测试用）
-           SDL_VIDEODRIVER=dummy ./launch.sh
-           ```
-        
-        ## 文件说明
-        - `wiliwili`: 主程序
-        - `launch.sh`: 启动脚本
-        - `lib/`: 依赖库目录
-        - `README.md`: 说明文件
-        
-        构建时间: $(date)
-        EOF
-
-    # 9) 上传制品
-    - name: Upload artifacts
+    # 4) 上传二进制文件
+    - name: Upload binary
       uses: actions/upload-artifact@v4
       with:
-        name: wiliwili-rg35xxpro-aarch64
-        path: ${{ github.workspace }}/dist/wiliwili_rg35xxpro/**
+        name: wiliwili-aarch64-binary
+        path: ${{ github.workspace }}/build/wiliwili
         retention-days: 30
-
-    # 10) 上传构建日志
-    - name: Upload build logs
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-logs
-        path: |
-          ${{ github.workspace }}/mpv_src/build/config.log
-          ${{ github.workspace }}/build/CMakeCache.txt
-          ${{ github.workspace }}/build/CMakeFiles/CMakeOutput.log
-        retention-days: 7
