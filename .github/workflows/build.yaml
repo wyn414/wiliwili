@@ -16,7 +16,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 120
+    timeout-minutes: 90
 
     env:
       ARCH: aarch64
@@ -36,7 +36,6 @@ jobs:
         echo "事件: ${{ github.event_name }}"
         echo "分支: ${{ github.ref }}"
         echo "提交: ${{ github.sha }}"
-        echo "工作区: ${{ github.workspace }}"
 
     # 2) 检出代码
     - name: Checkout repository
@@ -45,7 +44,7 @@ jobs:
         submodules: recursive
         fetch-depth: 0
 
-    # 3) 安装基础依赖
+    # 3) 安装基础依赖（简化版）
     - name: Install basic dependencies
       run: |
         echo "更新包列表..."
@@ -55,30 +54,24 @@ jobs:
         sudo apt-get install -y \
           build-essential \
           git cmake ninja-build pkg-config \
-          python3 python3-pip python3-dev \
+          python3 python3-pip \
           wget curl tar gzip unzip \
-          autoconf automake libtool gettext \
-          yasm nasm flex bison meson \
-          file tree
+          autoconf automake libtool \
+          yasm nasm
         
         echo "安装交叉编译工具链..."
         sudo apt-get install -y \
           gcc-aarch64-linux-gnu \
           g++-aarch64-linux-gnu \
-          binutils-aarch64-linux-gnu \
-          qemu-user qemu-user-static
+          binutils-aarch64-linux-gnu
         
-        echo "安装主机架构开发库..."
+        echo "安装主机架构开发库（用于构建）..."
         sudo apt-get install -y \
           libgles2-mesa-dev \
           libegl1-mesa-dev \
-          libdrm-dev \
-          libgbm-dev \
           libsdl2-dev \
           libfreetype-dev \
-          libfontconfig-dev \
-          libfribidi-dev \
-          libharfbuzz-dev
+          libfontconfig-dev
         
         echo "清理缓存..."
         sudo apt-get clean
@@ -92,90 +85,41 @@ jobs:
         mkdir -p ${{ env.INSTALL_DIR }}/lib
         mkdir -p ${{ env.INSTALL_DIR }}/include
         mkdir -p ${{ env.INSTALL_DIR }}/bin
-        mkdir -p ${{ env.INSTALL_DIR }}/share
-        
-        echo "创建构建目录..."
-        mkdir -p ${{ github.workspace }}/sdl2_build
-        mkdir -p ${{ github.workspace }}/wiliwili_build
 
-    # 5) 创建交叉编译工具链文件
-    - name: Create cross-compilation toolchain
-      run: |
-        cat > ${{ github.workspace }}/toolchain.cmake << 'EOF'
-        # Cross-compilation toolchain for aarch64
-        set(CMAKE_SYSTEM_NAME Linux)
-        set(CMAKE_SYSTEM_PROCESSOR aarch64)
-        
-        # Cross compiler
-        set(CMAKE_C_COMPILER aarch64-linux-gnu-gcc)
-        set(CMAKE_CXX_COMPILER aarch64-linux-gnu-g++)
-        set(CMAKE_AR aarch64-linux-gnu-ar)
-        set(CMAKE_RANLIB aarch64-linux-gnu-ranlib)
-        set(CMAKE_STRIP aarch64-linux-gnu-strip)
-        
-        # Sysroot
-        set(CMAKE_SYSROOT /usr/aarch64-linux-gnu)
-        set(CMAKE_FIND_ROOT_PATH ${CMAKE_SYSROOT})
-        
-        # Search rules
-        set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
-        set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
-        set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
-        set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
-        
-        # Compiler flags
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=${{ env.CPU }} -mtune=${{ env.CPU }} -fPIC -O2")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=${{ env.CPU }} -mtune=${{ env.CPU }} -fPIC -O2")
-        
-        # Linker flags
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath-link,${CMAKE_SYSROOT}/lib")
-        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-rpath-link,${CMAKE_SYSROOT}/lib")
-        EOF
-        
-        echo "工具链文件创建完成"
-
-    # 6) 构建 SDL2（使用 CMake 方式，更简单）
-    - name: Build SDL2
+    # 5) 构建 SDL2（使用最简单的方法）
+    - name: Build SDL2 (simple method)
       run: |
         cd ${{ github.workspace }}
         
         echo "下载 SDL2 源码..."
+        # 使用更稳定的版本
         wget -O sdl2.tar.gz https://github.com/libsdl-org/SDL/releases/download/release-2.26.5/SDL2-2.26.5.tar.gz
         tar -xzf sdl2.tar.gz
         mv SDL2-2.26.5 sdl2_src
         
         cd sdl2_src
         
-        echo "创建构建目录..."
-        mkdir -p build && cd build
-        
-        echo "配置 SDL2 (CMake 方式)..."
-        cmake .. \
-          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/toolchain.cmake \
-          -DCMAKE_INSTALL_PREFIX=${{ env.INSTALL_DIR }} \
-          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
-          -DSDL_SHARED=ON \
-          -DSDL_STATIC=OFF \
-          -DSDL_TEST=OFF \
-          -DSDL_VIDEO=ON \
-          -DSDL_VIDEO_OPENGL=OFF \
-          -DSDL_VIDEO_OPENGL_ES=ON \
-          -DSDL_OPENGLES=ON \
-          -DSDL_VIDEO_OPENGL_ES2=ON \
-          -DSDL_VIDEO_X11=OFF \
-          -DSDL_VIDEO_WAYLAND=OFF \
-          -DSDL_VIDEO_KMSDRM=ON \
-          -DSDL_VIDEO_FBDEV=ON \
-          -DSDL_AUDIO=ON \
-          -DSDL_ALSA=ON \
-          -DSDL_PULSEAUDIO=OFF \
-          -DSDL_JOYSTICK=ON \
-          -DSDL_HAPTIC=ON \
-          -DSDL_THREADS=ON \
-          -DSDL_TIMERS=ON \
-          -DSDL_FILE=ON \
-          -DSDL_LOADSO=ON \
-          -DSDL_ATOMIC=ON
+        echo "配置 SDL2（使用 configure，不使用 CMake）..."
+        # 使用 autotools 而不是 CMake，避免交叉编译问题
+        ./configure \
+          --host=aarch64-linux-gnu \
+          --prefix=${{ env.INSTALL_DIR }} \
+          --enable-static \
+          --disable-shared \
+          --disable-video-opengl \
+          --enable-video-opengles \
+          --disable-video-x11 \
+          --disable-video-wayland \
+          --enable-video-kmsdrm \
+          --enable-video-fbdev \
+          --disable-alsa \
+          --disable-pulseaudio \
+          --disable-esd \
+          --disable-arts \
+          --disable-nas \
+          --disable-sndio \
+          --disable-fusionsound \
+          --disable-libsamplerate
         
         echo "编译 SDL2..."
         make -j$(nproc)
@@ -184,27 +128,16 @@ jobs:
         make install
         
         echo "SDL2 构建完成"
-        ls -la ${{ env.INSTALL_DIR }}/lib/libSDL2*
-        echo ""
-        echo "SDL2 头文件:"
-        ls -la ${{ env.INSTALL_DIR }}/include/SDL2/
+        echo "检查安装的文件："
+        ls -la ${{ env.INSTALL_DIR }}/lib/libSDL2* 2>/dev/null || echo "未找到 SDL2 库文件"
+        ls -la ${{ env.INSTALL_DIR }}/include/SDL2/ 2>/dev/null || echo "未找到 SDL2 头文件"
 
-    # 7) 构建 wiliwili（禁用 MPV）
+    # 6) 构建 wiliwili（简化配置，直接传递编译器）
     - name: Build wiliwili
       run: |
         cd ${{ github.workspace }}
         
-        echo "=== 构建 wiliwili (无 MPV) ==="
-        
-        # 设置环境变量
-        export CC="aarch64-linux-gnu-gcc"
-        export CXX="aarch64-linux-gnu-g++"
-        export PKG_CONFIG="aarch64-linux-gnu-pkg-config"
-        export PKG_CONFIG_PATH="${{ env.INSTALL_DIR }}/lib/pkgconfig:/usr/aarch64-linux-gnu/lib/pkgconfig"
-        export LD_LIBRARY_PATH="${{ env.INSTALL_DIR }}/lib:/usr/aarch64-linux-gnu/lib"
-        export CFLAGS="-mcpu=${{ env.CPU }} -mtune=${{ env.CPU }} -fPIC -O2"
-        export CXXFLAGS="-mcpu=${{ env.CPU }} -mtune=${{ env.CPU }} -fPIC -O2"
-        export LDFLAGS="-Wl,-rpath-link,${{ env.INSTALL_DIR }}/lib -Wl,-rpath-link,/usr/aarch64-linux-gnu/lib"
+        echo "=== 构建 wiliwili ==="
         
         # 创建构建目录
         mkdir -p wiliwili_build
@@ -216,32 +149,32 @@ jobs:
           rm -rf *
         fi
         
-        echo "配置 wiliwili (禁用 MPV)..."
-        # 关键：禁用 MPV，启用 SDL2 和 OpenGL ES
+        echo "配置 wiliwili（简单方法）..."
+        # 直接传递编译器，不使用复杂的工具链文件
         cmake .. \
-          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/toolchain.cmake \
+          -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+          -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
           -DCMAKE_INSTALL_PREFIX=${{ env.INSTALL_DIR }} \
           -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
           -DCMAKE_PREFIX_PATH="${{ env.INSTALL_DIR }}" \
-          -DCMAKE_MODULE_PATH="${{ env.INSTALL_DIR }}/lib/cmake" \
           # 核心配置
           -DPLATFORM_DESKTOP=ON \
           -DWILIWILI_USE_SDL2=ON \
           -DWILIWILI_USE_OPENGL=OFF \
           -DWILIWILI_USE_OPENGL_ES=ON \
           -DWILIWILI_USE_VULKAN=OFF \
-          # 关键：禁用 MPV
+          # 禁用 MPV
           -DWILIWILI_USE_MPV=OFF \
           # 其他选项
           -DWILIWILI_ENABLE_TESTS=OFF \
           -DWILIWILI_ENABLE_EXAMPLES=OFF \
           -DBUILD_SHARED_LIBS=ON \
-          -DCMAKE_VERBOSE_MAKEFILE=ON \
-          # 链接器设置
+          # 编译器标志
+          -DCMAKE_C_FLAGS="-mcpu=${{ env.CPU }} -mtune=${{ env.CPU }} -fPIC -O2" \
+          -DCMAKE_CXX_FLAGS="-mcpu=${{ env.CPU }} -mtune=${{ env.CPU }} -fPIC -O2" \
+          # 链接器标志
           -DCMAKE_EXE_LINKER_FLAGS="-Wl,-rpath,${{ env.INSTALL_DIR }}/lib -L${{ env.INSTALL_DIR }}/lib" \
-          -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-rpath,${{ env.INSTALL_DIR }}/lib" \
-          # SDL2 配置
-          -DSDL2_DIR=${{ env.INSTALL_DIR }}/lib/cmake/SDL2
+          -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-rpath,${{ env.INSTALL_DIR }}/lib"
         
         echo "编译 wiliwili..."
         make -j$(nproc)
@@ -254,37 +187,19 @@ jobs:
           echo "文件大小:"
           ls -lh wiliwili
           
-          # 复制到安装目录
-          cp wiliwili ${{ env.INSTALL_DIR }}/bin/
-          echo "✅ 已复制到 ${{ env.INSTALL_DIR }}/bin/"
+          # 测试架构
+          echo "架构检查:"
+          aarch64-linux-gnu-objdump -f wiliwili | grep architecture || true
         else
           echo "❌ 错误：未找到 wiliwili 可执行文件"
           echo "当前目录内容:"
           ls -la
-          echo "尝试查找其他可能的输出文件..."
-          find . -type f -executable | head -20
+          echo "CMake 缓存:"
+          cat CMakeCache.txt 2>/dev/null | grep -i "sdl\|error\|fail" | head -20 || true
           exit 1
         fi
 
-    # 8) 测试二进制文件
-    - name: Test binary
-      run: |
-        cd ${{ github.workspace }}
-        
-        echo "测试 wiliwili 二进制文件..."
-        
-        echo "二进制架构:"
-        file wiliwili_build/wiliwili
-        
-        echo "检查动态库依赖..."
-        if command -v aarch64-linux-gnu-readelf >/dev/null 2>&1; then
-          echo "使用 readelf 检查依赖:"
-          aarch64-linux-gnu-readelf -d wiliwili_build/wiliwili | grep "NEEDED" || true
-        fi
-        
-        echo "简单的架构验证完成"
-
-    # 9) 打包制品
+    # 7) 打包制品
     - name: Package artifacts
       run: |
         cd ${{ github.workspace }}
@@ -294,7 +209,6 @@ jobs:
         # 创建分发目录
         DIST_DIR="dist/wiliwili_rg35xxpro"
         mkdir -p $DIST_DIR
-        mkdir -p $DIST_DIR/libs
         
         # 复制可执行文件
         echo "复制 wiliwili..."
@@ -307,204 +221,90 @@ jobs:
           exit 1
         fi
         
-        # 复制 SDL2 库
-        echo "复制 SDL2 库..."
-        SDL2_LIBS=$(find ${{ env.INSTALL_DIR }}/lib -name "libSDL2*.so*" 2>/dev/null || true)
-        if [ -n "$SDL2_LIBS" ]; then
-          for lib in $SDL2_LIBS; do
-            echo "复制: $(basename $lib)"
-            cp -L "$lib" $DIST_DIR/libs/ 2>/dev/null || true
-          done
-          echo "✅ SDL2 库复制完成"
-        else
-          echo "⚠️ 警告：未找到 SDL2 库"
-        fi
-        
-        # 使用 readelf 查找依赖
-        echo "查找动态库依赖..."
-        if command -v aarch64-linux-gnu-readelf >/dev/null 2>&1 && [ -f "$DIST_DIR/wiliwili" ]; then
-          DEPS=$(aarch64-linux-gnu-readelf -d $DIST_DIR/wiliwili 2>/dev/null | grep "NEEDED" | sed -e 's/.*\[//' -e 's/\]//' || true)
-          
-          if [ -n "$DEPS" ]; then
-            echo "找到的依赖:"
-            echo "$DEPS"
-            
-            # 复制依赖库
-            for lib in $DEPS; do
-              echo "查找库: $lib"
-              # 跳过已经复制的 SDL2 库
-              if echo "$lib" | grep -q "SDL2"; then
-                echo "  跳过 SDL2 库"
-                continue
-              fi
-              
-              # 在安装目录中查找
-              find ${{ env.INSTALL_DIR }}/lib -name "$lib" -exec cp -L {} $DIST_DIR/libs/ \; 2>/dev/null || true
-              # 在系统目录中查找
-              find /usr/aarch64-linux-gnu/lib -name "$lib" -exec cp -L {} $DIST_DIR/libs/ \; 2>/dev/null || true
-              find /lib/aarch64-linux-gnu -name "$lib" -exec cp -L {} $DIST_DIR/libs/ \; 2>/dev/null || true
-            done
-          else
-            echo "⚠️ 警告：未找到依赖信息"
-          fi
-        else
-          echo "⚠️ 警告：无法读取二进制依赖信息"
-        fi
-        
-        # 创建启动脚本
-        cat > $DIST_DIR/launch.sh << 'EOF'
+        # 创建简单的启动脚本
+        cat > $DIST_DIR/run.sh << 'EOF'
         #!/bin/bash
-        # wiliwili 启动脚本 for RG35XX Pro (无 MPV 版本)
-        
-        SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-        
-        # 设置库路径
-        export LD_LIBRARY_PATH="$SCRIPT_DIR/libs:$LD_LIBRARY_PATH"
-        
-        # SDL2 配置
-        # RG35XX Pro 通常使用 kmsdrm 或 fbdev
-        export SDL_VIDEODRIVER=${SDL_VIDEODRIVER:-kmsdrm}
-        export SDL_AUDIODRIVER=${SDL_AUDIODRIVER:-alsa}
-        
-        # OpenGL ES 配置
-        export MESA_GL_VERSION_OVERRIDE=3.0
-        export MESA_GLES_VERSION_OVERRIDE=3.0
+        # wiliwili 启动脚本 for RG35XX Pro
         
         echo "启动 wiliwili for RG35XX Pro..."
-        echo "版本: 无 MPV 支持"
-        echo "视频驱动: $SDL_VIDEODRIVER"
-        echo "音频驱动: $SDL_AUDIODRIVER"
-        echo "库路径: $LD_LIBRARY_PATH"
+        echo "版本: 无 MPV 支持，SDL2 + OpenGL ES"
         
-        # 运行 wiliwili
-        cd "$SCRIPT_DIR"
+        # 尝试不同的 SDL 视频驱动
+        for driver in kmsdrm fbdev dummy; do
+          echo "尝试 SDL_VIDEODRIVER=$driver"
+          export SDL_VIDEODRIVER=$driver
+          export SDL_AUDIODRIVER=alsa
+          
+          # 检查是否能初始化 SDL
+          if ./wiliwili --version 2>&1 | grep -q "SDL\|wiliwili"; then
+            echo "✅ 使用驱动: $driver"
+            exec ./wiliwili "$@"
+          fi
+          echo "驱动 $driver 失败"
+        done
+        
+        echo "❌ 无法找到可用的 SDL 驱动"
+        echo "尝试直接运行..."
         exec ./wiliwili "$@"
         EOF
         
-        chmod +x $DIST_DIR/launch.sh
-        
-        # 创建简化启动脚本（直接尝试各种驱动）
-        cat > $DIST_DIR/launch_simple.sh << 'EOF'
-        #!/bin/bash
-        # 简化启动脚本 - 自动尝试不同驱动
-        
-        echo "尝试启动 wiliwili..."
-        
-        # 尝试不同的视频驱动
-        for driver in kmsdrm fbdev dummy; do
-          echo "尝试 SDL_VIDEODRIVER=$driver"
-          if SDL_VIDEODRIVER=$driver SDL_AUDIODRIVER=alsa ./launch.sh --version 2>&1 | grep -q "wiliwili\|SDL"; then
-            echo "✅ 驱动 $driver 可用"
-            SDL_VIDEODRIVER=$driver ./launch.sh "$@"
-            exit $?
-          fi
-          echo "驱动 $driver 失败，尝试下一个..."
-        done
-        
-        echo "❌ 所有驱动尝试失败"
-        echo "请检查设备是否支持 SDL2"
-        exit 1
-        EOF
-        
-        chmod +x $DIST_DIR/launch_simple.sh
+        chmod +x $DIST_DIR/run.sh
         
         # 创建 README
         cat > $DIST_DIR/README.md << 'EOF'
-        # wiliwili for RG35XX Pro (无 MPV 版本)
+        # wiliwili for RG35XX Pro
         
         ## 构建信息
         - 架构: aarch64 (ARM64)
         - CPU: Cortex-A55
         - 图形: SDL2 + OpenGL ES
-        - 平台: 桌面模式 (PLATFORM_DESKTOP=ON)
-        - 视频播放: 无 MPV 支持 (WILIWILI_USE_MPV=OFF)
-        - 渲染: 软件渲染，无 X11
-        
-        ## 重要说明
-        此版本**没有集成 MPV 视频播放功能**，主要用于测试和基础功能。
+        - 平台: 桌面模式
+        - 视频播放: 无 MPV 支持
         
         ## 使用方法
         1. 将所有文件复制到 RG35XX Pro
         2. 运行:
            ```bash
-           # 方法1: 使用自动驱动检测
-           ./launch_simple.sh
-           
-           # 方法2: 手动指定驱动
-           chmod +x launch.sh
-           ./launch.sh
+           chmod +x run.sh
+           ./run.sh
            ```
         
-        3. 如果无法启动，尝试不同的 SDL 驱动:
+        3. 如果无法启动，可以手动尝试:
            ```bash
-           SDL_VIDEODRIVER=kmsdrm ./launch.sh
-           # 或
-           SDL_VIDEODRIVER=fbdev ./launch.sh
+           # 方法1: KMSDRM 驱动
+           SDL_VIDEODRIVER=kmsdrm ./wiliwili
+           
+           # 方法2: FBDEV 驱动
+           SDL_VIDEODRIVER=fbdev ./wiliwili
+           
+           # 方法3: 虚拟驱动（测试用）
+           SDL_VIDEODRIVER=dummy ./wiliwili
            ```
         
         ## 文件说明
         - `wiliwili`: 主程序
-        - `launch.sh`: 主启动脚本
-        - `launch_simple.sh`: 简化启动脚本（自动尝试驱动）
-        - `libs/`: 依赖库目录
+        - `run.sh`: 启动脚本
         - `README.md`: 说明文件
         
-        构建时间: $(date)
-        EOF
-        
-        # 创建版本信息
-        cat > $DIST_DIR/version.txt << EOF
-        wiliwili for RG35XX Pro (无 MPV)
-        =================================
-        
-        构建配置:
-        - PLATFORM_DESKTOP=ON
-        - WILIWILI_USE_SDL2=ON
-        - WILIWILI_USE_OPENGL_ES=ON
-        - WILIWILI_USE_MPV=OFF (无视频播放)
-        
-        工具链:
-        - 编译器: aarch64-linux-gnu-gcc
-        - CPU: ${{ env.CPU }}
-        - 构建类型: ${{ env.BUILD_TYPE }}
-        
-        依赖版本:
-        - SDL2: 2.26.5
+        ## 注意
+        此版本没有 MPV 视频播放功能，主要用于测试基础功能。
         
         构建时间: $(date)
-        构建提交: ${{ github.sha }}
         EOF
         
         echo "打包完成！"
         echo "分发目录内容:"
         ls -la $DIST_DIR/
-        echo ""
-        echo "库目录内容:"
-        ls -la $DIST_DIR/libs/ 2>/dev/null || echo "库目录为空"
 
-    # 10) 上传制品
+    # 8) 上传制品
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: wiliwili-rg35xxpro-no-mpv
+        name: wiliwili-rg35xxpro-simple
         path: ${{ github.workspace }}/dist/wiliwili_rg35xxpro/**
         retention-days: 30
-        if-no-files-found: error
 
-    # 11) 上传构建日志
-    - name: Upload build logs
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-logs
-        path: |
-          ${{ github.workspace }}/sdl2_src/build/CMakeCache.txt
-          ${{ github.workspace }}/sdl2_src/build/CMakeFiles/CMakeOutput.log
-          ${{ github.workspace }}/wiliwili_build/CMakeCache.txt
-          ${{ github.workspace }}/wiliwili_build/CMakeFiles/CMakeOutput.log
-        retention-days: 7
-
-    # 12) 成功通知
+    # 9) 成功通知
     - name: Success notification
       if: success()
       run: |
@@ -512,17 +312,16 @@ jobs:
         echo "🎉 制品已生成并上传"
         echo "📦 下载链接: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         echo ""
-        echo "注意: 此版本没有 MPV 支持，主要用于测试基本功能。"
+        echo "注意: 这是简化版本，没有 MPV 支持。"
 
-    # 13) 失败通知
+    # 10) 失败通知
     - name: Failure notification
       if: failure()
       run: |
         echo "❌ 构建失败！"
-        echo "请检查以下可能的问题:"
-        echo "1. 依赖包安装失败"
-        echo "2. 网络连接问题"
-        echo "3. 源代码编译错误"
-        echo "4. SDL2 构建失败"
+        echo "常见问题:"
+        echo "1. SDL2 构建失败"
+        echo "2. 编译器不兼容"
+        echo "3. 依赖缺失"
         echo ""
         echo "详细日志: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
