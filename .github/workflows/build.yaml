@@ -14,9 +14,9 @@ jobs:
     # ---------- 1. 安装 aarch64 交叉编译器 ----------
     - name: Install aarch64 toolchain and GLES headers
     run: |
-    sudo dpkg --add-architecture arm64
-    sudo apt update
-    sudo apt install -y \
+      sudo dpkg --add-architecture arm64
+      sudo apt update
+      sudo apt install -y \
       gcc-aarch64-linux-gnu \
       g++-aarch64-linux-gnu \
       cmake \
