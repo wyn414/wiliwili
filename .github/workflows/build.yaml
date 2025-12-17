@@ -63,21 +63,20 @@ jobs:
 
     # ---------- 4. 编译 wiliwili ----------
     - name: Build wiliwili
-    run: |
-      mkdir build && cd build
-      cmake .. \
-        -DCMAKE_SYSTEM_NAME=Linux \
-        -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-        -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
-        -DCMAKE_PREFIX_PATH=$GITHUB_WORKSPACE/SDL/build/install \
-        -DWILIWILI_USE_SDL2=ON \
-        -DWILIWILI_USE_OPENGL=OFF \
-        -DWILIWILI_USE_OPENGL_ES=ON \
-        -DWILIWILI_USE_VULKAN=OFF \
-        -DPLATFORM_DESKTOP=ON
-    
-    make -j$(nproc)
+      run: |
+        mkdir build && cd build
+        cmake .. \
+          -DCMAKE_SYSTEM_NAME=Linux \
+          -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+          -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+          -DCMAKE_PREFIX_PATH=$GITHUB_WORKSPACE/SDL/build/install \
+          -DWILIWILI_USE_SDL2=ON \
+          -DWILIWILI_USE_OPENGL=OFF \
+          -DWILIWILI_USE_OPENGL_ES=ON \
+          -DWILIWILI_USE_VULKAN=OFF \
+          -DPLATFORM_DESKTOP=ON
 
+        make -j$(nproc)
 
     # ---------- 5. 上传构建产物 ----------
     - name: Upload artifact
