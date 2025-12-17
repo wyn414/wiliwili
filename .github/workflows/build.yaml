@@ -1,65 +1,26 @@
-name: Build wiliwili for RG35XX Pro
-
-on:
-  push:
-    branches: [ "**" ]
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 30
-
-    steps:
-    # 1) 检出代码
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-
-    # 2) 安装工具
-    - name: Install tools
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y cmake gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-
-    # 3) 直接修改 CMakeLists.txt 以跳过 MPV
-    - name: Patch CMakeLists.txt to skip MPV
+    # 4) 构建静态链接版本
+    - name: Build static wiliwili
       run: |
         cd ${{ github.workspace }}
         
-        echo "=== 修改 CMakeLists.txt 以跳过 MPV ==="
-        
-        # 备份原始文件
-        cp CMakeLists.txt CMakeLists.txt.backup
-        
-        # 使用 sed 直接注释掉 find_package(MPV REQUIRED)
-        # 找到包含 "find_package(MPV REQUIRED)" 的行并注释掉
-        sed -i 's/^[[:space:]]*find_package(MPV REQUIRED)/#find_package(MPV REQUIRED)/' CMakeLists.txt
-        
-        # 同时注释掉相关的消息和列表添加
-        sed -i 's/^[[:space:]]*message(STATUS "Found libmpv:/#message(STATUS "Found libmpv:/' CMakeLists.txt
-        sed -i 's/^[[:space:]]*list(APPEND APP_PLATFORM_INCLUDE ${MPV_INCLUDE_DIR})/#list(APPEND APP_PLATFORM_INCLUDE ${MPV_INCLUDE_DIR})/' CMakeLists.txt
-        sed -i 's/^[[:space:]]*list(APPEND APP_PLATFORM_LIB ${MPV_LIBRARY})/#list(APPEND APP_PLATFORM_LIB ${MPV_LIBRARY})/' CMakeLists.txt
-        
-        echo "CMakeLists.txt 已修改"
-
-    # 4) 构建 wiliwili
-    - name: Build wiliwili
-      run: |
-        cd ${{ github.workspace }}
-        
-        echo "=== 构建 wiliwili (MPV 已跳过) ==="
+        echo "=== 构建静态链接 wiliwili ==="
         
         mkdir -p build
         cd build
         
         echo "配置..."
+        # 尝试静态链接
         cmake .. \
           -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
           -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
           -DCMAKE_BUILD_TYPE=Release \
-          -DPLATFORM_DESKTOP=ON
+          -DPLATFORM_DESKTOP=OFF \
+          -DPLATFORM_LINUX_SDL=ON \
+          -DGRAPHICS_API=SOFTWARE \  # 或 OPENGL_ES2
+          -DBUILD_SHARED_LIBS=OFF \
+          -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc -static-libstdc++ -Wl,--as-needed -Wl,--no-undefined" \
+          -DCMAKE_CXX_FLAGS="-march=armv8-a+crc -mtune=cortex-a53 -O2 -fPIC -ffunction-sections -fdata-sections" \
+          -DCMAKE_SHARED_LINKER_FLAGS="-Wl,--gc-sections"
         
         echo "编译..."
         make -j$(nproc)
@@ -70,20 +31,12 @@ jobs:
           file wiliwili
           echo "大小："
           ls -lh wiliwili
+          echo "检查是否静态链接："
+          aarch64-linux-gnu-readelf -d wiliwili | grep NEEDED || echo "没有动态依赖（可能是静态链接）"
           
-          # 恢复原始文件
           cd ..
           mv CMakeLists.txt.backup CMakeLists.txt
-          echo "CMakeLists.txt 已恢复"
         else
           echo "❌ 构建失败"
           exit 1
         fi
-
-    # 5) 上传二进制文件
-    - name: Upload binary
-      uses: actions/upload-artifact@v4
-      with:
-        name: wiliwili-aarch64
-        path: ${{ github.workspace }}/build/wiliwili
-        retention-days: 30
