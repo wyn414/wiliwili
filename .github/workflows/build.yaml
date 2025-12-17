@@ -7,6 +7,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 120
 
     env:
       PREFIX: ${{ github.workspace }}/install
@@ -43,12 +44,13 @@ jobs:
           libxcursor-dev \
           libxfixes-dev \
           yasm \
-          autoconf automake libtool
+          autoconf automake libtool \
+          wget
 
     # ---------- 3. 编译 SDL2 ----------
     - name: Build SDL2 (OpenGLES)
       run: |
-        git clone https://github.com/libsdl-org/SDL.git SDL2
+        git clone --depth 1 https://github.com/libsdl-org/SDL.git SDL2
         cd SDL2
         git checkout release-2.30.x
         mkdir build && cd build
@@ -69,17 +71,18 @@ jobs:
         make -j$(nproc)
         make install
 
-    # ---------- 4. 编译 MPV (交叉 aarch64) ----------
-    - name: Build MPV
+    # ---------- 4. 下载并编译 MPV ----------
+    - name: Download and build MPV
       run: |
-        git clone https://github.com/mpv-player/mpv.git
+        wget https://github.com/mpv-player/mpv/archive/refs/tags/v1.36.0.tar.gz
+        tar xf v1.36.0.tar.gz
+        mv mpv-1.36.0 mpv
         cd mpv
-        git checkout v1.36.0
         mkdir build && cd build
         PKG_CONFIG_PATH=$MPV_DIR/lib/pkgconfig \
         CC=aarch64-linux-gnu-gcc \
         CXX=aarch64-linux-gnu-g++ \
-        ./waf configure \
+        ../waf configure \
           --prefix=$MPV_DIR \
           --cross-compile \
           --enable-static-build \
@@ -94,8 +97,8 @@ jobs:
           --disable-cplayer \
           --disable-build-date \
           --disable-tools
-        ./waf build -j$(nproc)
-        ./waf install
+        ../waf build -j$(nproc)
+        ../waf install
 
     # ---------- 5. 编译 wiliwili ----------
     - name: Build wiliwili
