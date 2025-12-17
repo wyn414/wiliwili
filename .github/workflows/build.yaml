@@ -6,100 +6,146 @@ on:
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - debug
+          - release
+          - release_debug
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 150
+    timeout-minutes: 120
 
     env:
       CC: aarch64-linux-gnu-gcc
       CXX: aarch64-linux-gnu-g++
       AR: aarch64-linux-gnu-ar
-      LD: aarch64-linux-gnu-ld
       STRIP: aarch64-linux-gnu-strip
-      PKG_CONFIG: aarch64-linux-gnu-pkg-config
-      PKG_CONFIG_PATH: /usr/aarch64-linux-gnu/lib/pkgconfig:${{ github.workspace }}/install/lib/pkgconfig
-      PREFIX: ${{ github.workspace }}/install
       SYSROOT: /usr/aarch64-linux-gnu
+      INSTALL_PREFIX: ${{ github.workspace }}/install
 
     steps:
-    # 1) 检出仓库并拉取子模块
+    # 1) 检出仓库
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         submodules: recursive
         fetch-depth: 0
 
-    # 2) 安装完整交叉编译工具链和依赖
-    - name: Install complete cross-compilation toolchain
+    # 2) 安装依赖
+    - name: Install dependencies
       run: |
         sudo apt update
         sudo apt install -y \
-          git cmake ninja-build pkg-config python3 python3-pip meson \
-          gcc-aarch64-linux-gnu g++-aarch64-linux-gnu gcc-aarch64-linux-gnu \
+          git cmake ninja-build pkg-config python3 python3-pip \
+          gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
           binutils-aarch64-linux-gnu \
+          libgles2-mesa-dev libegl1-mesa-dev \
+          libdrm-dev libgbm-dev \
+          libx11-dev libxext-dev libxrandr-dev libxi-dev \
+          libxinerama-dev libxcursor-dev libxfixes-dev \
+          libxkbcommon-dev \
+          libavcodec-dev libavformat-dev libavutil-dev \
+          libavdevice-dev libavfilter-dev libswscale-dev \
+          libswresample-dev \
+          libluajit-5.1-dev \
+          libfreetype6-dev libfontconfig1-dev \
+          libfribidi-dev libharfbuzz-dev \
+          libass-dev \
+          libvulkan-dev \
+          libwayland-dev libwayland-egl-backend-dev \
+          libpulse-dev libasound2-dev \
+          yasm nasm autoconf automake libtool gettext \
+          wget curl build-essential flex bison \
+          libsdl2-dev
+
+        # 安装 aarch64 目标库
+        sudo apt install -y \
           libgles2-mesa-dev:arm64 libegl1-mesa-dev:arm64 \
           libdrm-dev:arm64 libgbm-dev:arm64 \
           libx11-dev:arm64 libxext-dev:arm64 libxrandr-dev:arm64 \
           libxi-dev:arm64 libxinerama-dev:arm64 libxcursor-dev:arm64 \
-          libxfixes-dev:arm64 libxkbcommon-dev:arm64 \
-          libavcodec-dev:arm64 libavformat-dev:arm64 libavutil-dev:arm64 \
-          libavdevice-dev:arm64 libavfilter-dev:arm64 libswscale-dev:arm64 \
-          libswresample-dev:arm64 \
-          libluajit-5.1-dev:arm64 \
-          libfreetype6-dev:arm64 libfontconfig1-dev:arm64 \
-          libfribidi-dev:arm64 libharfbuzz-dev:arm64 \
-          libmpv-dev:arm64 \
-          libass-dev:arm64 \
-          libplacebo-dev:arm64 \
-          libvulkan-dev:arm64 \
-          libwayland-dev:arm64 libwayland-egl-backend-dev:arm64 \
-          libpulse-dev:arm64 libasound2-dev:arm64 \
-          yasm nasm autoconf automake libtool gettext \
-          wget curl build-essential flex bison
+          libxfixes-dev:arm64 libxkbcommon-dev:arm64
 
-    # 3) 设置环境变量
-    - name: Setup environment
-      run: |
-        echo "CC=$CC" >> $GITHUB_ENV
-        echo "CXX=$CXX" >> $GITHUB_ENV
-        echo "AR=$AR" >> $GITHUB_ENV
-        echo "PKG_CONFIG=$PKG_CONFIG" >> $GITHUB_ENV
-        echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH" >> $GITHUB_ENV
-        echo "PREFIX=$PREFIX" >> $GITHUB_ENV
-        echo "SYSROOT=$SYSROOT" >> $GITHUB_ENV
-        echo "CFLAGS=-O2 -mcpu=cortex-a55 -mtune=cortex-a55 -fomit-frame-pointer" >> $GITHUB_ENV
-        echo "CXXFLAGS=-O2 -mcpu=cortex-a55 -mtune=cortex-a55 -fomit-frame-pointer" >> $GITHUB_ENV
-
-    # 4) 创建安装目录
-    - name: Create installation directories
+    # 3) 设置构建环境
+    - name: Setup build environment
       run: |
         mkdir -p ${{ github.workspace }}/install
-        mkdir -p ${{ github.workspace }}/install/lib/pkgconfig
-        mkdir -p ${{ github.workspace }}/install/include
+        mkdir -p ${{ github.workspace }}/sdl_build
+        mkdir -p ${{ github.workspace }}/mpv_build
+        mkdir -p ${{ github.workspace }}/wiliwili_build
 
-    # 5) 构建 SDL2（修正版本）
-    - name: Build SDL2 for aarch64
+        echo "CMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/toolchain.cmake" >> $GITHUB_ENV
+        echo "BUILD_TYPE=${{ github.event.inputs.build_type || 'release' }}" >> $GITHUB_ENV
+
+    # 4) 创建交叉编译工具链文件
+    - name: Create toolchain file
+      run: |
+        cat > ${{ github.workspace }}/toolchain.cmake << 'EOF'
+        # Cross-compilation toolchain for aarch64-linux-gnu
+        set(CMAKE_SYSTEM_NAME Linux)
+        set(CMAKE_SYSTEM_PROCESSOR aarch64)
+
+        # Cross compiler settings
+        set(CMAKE_C_COMPILER aarch64-linux-gnu-gcc)
+        set(CMAKE_CXX_COMPILER aarch64-linux-gnu-g++)
+        set(CMAKE_AR aarch64-linux-gnu-ar)
+        set(CMAKE_RANLIB aarch64-linux-gnu-ranlib)
+        set(CMAKE_STRIP aarch64-linux-gnu-strip)
+
+        # Sysroot
+        set(CMAKE_SYSROOT /usr/aarch64-linux-gnu)
+        set(CMAKE_FIND_ROOT_PATH ${CMAKE_SYSROOT})
+        
+        # Search paths
+        set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+        set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+        set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+        set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+
+        # Compiler flags for Cortex-A55 (RG35XX Pro CPU)
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=cortex-a55 -mtune=cortex-a55 -fPIC")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=cortex-a55 -mtune=cortex-a55 -fPIC")
+        
+        # Linker flags
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath-link,${CMAKE_SYSROOT}/lib")
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-rpath-link,${CMAKE_SYSROOT}/lib")
+        
+        # Pkg-config
+        set(ENV{PKG_CONFIG_PATH} "${CMAKE_SYSROOT}/lib/pkgconfig:${CMAKE_SYSROOT}/share/pkgconfig")
+        set(ENV{PKG_CONFIG_SYSROOT_DIR} ${CMAKE_SYSROOT})
+        EOF
+
+    # 5) 构建 SDL2（支持桌面模式 + OpenGL ES）
+    - name: Build SDL2 for desktop with OpenGL ES
       run: |
         cd ${{ github.workspace }}
-        git clone --depth 1 --branch release-2.30.3 https://github.com/libsdl-org/SDL.git SDL2
+        
+        # 获取 SDL2
+        if [ ! -d "SDL2" ]; then
+          git clone https://github.com/libsdl-org/SDL.git SDL2
+        fi
         cd SDL2
-        mkdir build && cd build
+        git fetch --all --tags
+        git checkout release-2.28.5
         
         # 配置 SDL2
+        mkdir -p build && cd build
+        
+        # 清除之前的构建
+        rm -rf *
+        
+        # 配置 SDL2 - 支持桌面 + OpenGL ES
         cmake .. \
-          -DCMAKE_SYSTEM_NAME=Linux \
-          -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-          -DCMAKE_C_COMPILER=$CC \
-          -DCMAKE_CXX_COMPILER=$CXX \
-          -DCMAKE_AR=$AR \
-          -DCMAKE_FIND_ROOT_PATH=$SYSROOT \
-          -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
-          -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-          -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
-          -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
-          -DCMAKE_INSTALL_PREFIX=$PREFIX \
+          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/toolchain.cmake \
+          -DCMAKE_INSTALL_PREFIX=${{ env.INSTALL_PREFIX }} \
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
           -DSDL_SHARED=ON \
           -DSDL_STATIC=OFF \
           -DSDL_TEST=OFF \
@@ -108,185 +154,323 @@ jobs:
           -DSDL_VIDEO_OPENGL_ES=ON \
           -DSDL_OPENGLES=ON \
           -DSDL_VIDEO_OPENGL_ES2=ON \
+          -DSDL_VIDEO_DRIVER_X11=ON \
+          -DSDL_VIDEO_X11_XCURSOR=ON \
+          -DSDL_VIDEO_X11_XINERAMA=ON \
+          -DSDL_VIDEO_X11_XINPUT=ON \
+          -DSDL_VIDEO_X11_XRANDR=ON \
+          -DSDL_VIDEO_X11_XSCRNSAVER=ON \
+          -DSDL_VIDEO_X11_XSHAPE=ON \
+          -DSDL_VIDEO_X11_XVIDMODE=ON \
+          -DSDL_VIDEO_DRIVER_WAYLAND=OFF \
           -DSDL_VIDEO_DRIVER_KMSDRM=ON \
           -DSDL_VIDEO_DRIVER_FBDEV=ON \
-          -DSDL_VIDEO_DRIVER_X11=OFF \
-          -DSDL_VIDEO_DRIVER_WAYLAND=OFF \
-          -DSDL_VIDEO_DRIVER_RPI=OFF \
           -DSDL_AUDIO=ON \
-          -DSDL_PULSEAUDIO=ON \
           -DSDL_ALSA=ON \
-          -DSDL_JACK=OFF \
-          -DSDL_ESD=OFF \
-          -DSDL_ARTS=OFF \
-          -DSDL_NAS=OFF \
-          -DSDL_SNDIO=OFF \
-          -DSDL_FUSIONSOUND=OFF \
-          -DSDL_LIBSAMPLERATE=OFF \
-          -DSDL_INPUT_LINUXEV=ON \
-          -DSDL_INPUT_LINUXKD=ON \
-          -DSDL_THREADS=ON \
+          -DSDL_PULSEAUDIO=OFF \
+          -DSDL_JOYSTICK=ON \
+          -DSDL_HAPTIC=ON \
+          -DSDL_HIDAPI=ON \
+          -DSDL_POWER=ON \
+          -DSDL_FILESYSTEM=ON \
           -DSDL_TIMERS=ON \
-          -DSDL_FILE=ON \
           -DSDL_LOADSO=ON \
           -DSDL_ATOMIC=ON \
-          -DSDL_AUDIO_DRIVER_PULSEAUDIO_DYNAMIC=ON \
-          -DSDL_AUDIO_DRIVER_ALSA_DYNAMIC=ON
+          -DSDL_THREADS=ON \
+          -DSDL_CPUINFO=ON \
+          -DSDL_ASSEMBLY=OFF \
+          -DSDL_SSE=OFF \
+          -DSDL_SSE2=OFF \
+          -DSDL_SSE3=OFF \
+          -DSDL_ALTIVEC=OFF \
+          -DSDL_NEON=ON \
+          -DSDL_RPI=OFF \
+          -DSDL_RPATH=OFF \
+          -DSDL_CLOCK_GETTIME=ON \
+          -DSDL_ESD=OFF \
+          -DSDL_VIDEO_RPI=OFF \
+          -DSDL_X11_SHARED=ON \
+          -DSDL_DIRECTX=OFF
         
+        # 构建并安装
         make -j$(nproc)
         make install
+        
+        # 验证安装
+        echo "SDL2 安装完成："
+        ls -la ${{ env.INSTALL_PREFIX }}/lib/libSDL2*
+        file ${{ env.INSTALL_PREFIX }}/lib/libSDL2.so
 
-    # 6) 构建 MPV（简化配置）
-    - name: Build MPV for aarch64
+    # 6) 构建 MPV
+    - name: Build MPV
       run: |
         cd ${{ github.workspace }}
-        git clone --depth 1 --branch v0.36.0 https://github.com/mpv-player/mpv.git mpv-src
-        cd mpv-src
         
-        # MPV 需要的一些额外依赖
+        # 获取 MPV
+        if [ ! -d "mpv" ]; then
+          git clone https://github.com/mpv-player/mpv.git
+        fi
+        cd mpv
+        git fetch --all --tags
+        git checkout v0.36.0
+        
+        # 运行引导脚本
         ./bootstrap.py
         
         # 配置 MPV
+        export PKG_CONFIG="aarch64-linux-gnu-pkg-config"
+        export PKG_CONFIG_PATH="${{ env.INSTALL_PREFIX }}/lib/pkgconfig:/usr/aarch64-linux-gnu/lib/pkgconfig"
+        export CFLAGS="-mcpu=cortex-a55 -mtune=cortex-a55 -fPIC"
+        export CXXFLAGS="-mcpu=cortex-a55 -mtune=cortex-a55 -fPIC"
+        export LDFLAGS="-Wl,-rpath-link,/usr/aarch64-linux-gnu/lib"
+        
         ./waf configure \
-          --prefix=$PREFIX \
-          --cc=$CC \
-          --cxx=$CXX \
-          --ar=$AR \
+          --prefix=${{ env.INSTALL_PREFIX }} \
+          --cc=aarch64-linux-gnu-gcc \
+          --cxx=aarch64-linux-gnu-g++ \
+          --ar=aarch64-linux-gnu-ar \
           --pkg-config=$PKG_CONFIG \
+          --enable-egl \
           --enable-egl-drm \
           --enable-drm \
           --enable-gbm \
-          --enable-egl \
           --enable-gl \
           --enable-gles2 \
-          --enable-libmpv-shared \
+          --enable-sdl2 \
+          --enable-sdl2-audio \
+          --enable-sdl2-gamepad \
+          --enable-sdl2-video \
+          --enable-x11 \
+          --disable-wayland \
+          --disable-vulkan \
+          --disable-vaapi \
+          --disable-vdpau \
           --disable-cplayer \
           --disable-build-date \
           --disable-debug-build \
           --disable-manpage-build \
-          --disable-swift \
-          --disable-pulse \
-          --disable-alsa \
-          --disable-jack \
-          --disable-openal \
-          --disable-oss-audio \
-          --disable-sdl2-audio \
-          --disable-sdl2-gamepad \
-          --disable-sdl2-video \
-          --disable-vapoursynth \
-          --disable-vapoursynth-lazy \
-          --disable-rubberband \
-          --disable-lcms2 \
-          --disable-vulkan \
-          --disable-spirv-cross \
-          --disable-shaderc \
-          --disable-vaapi \
-          --disable-vaapi-drm \
-          --disable-vaapi-wayland \
-          --disable-vaapi-x11 \
-          --disable-vdpau \
-          --disable-vdpau-gl-x11 \
-          --disable-wayland \
-          --disable-x11 \
-          --disable-xv \
-          --disable-sdl2 \
           --cross-compile
         
+        # 构建和安装
         ./waf build -j$(nproc)
         ./waf install
 
-    # 7) 构建 wiliwili
+    # 7) 构建 wiliwili（关键：启用桌面模式 + SDL2 + OpenGL ES）
     - name: Build wiliwili
       run: |
         cd ${{ github.workspace }}
-        mkdir -p build && cd build
         
-        # 设置 pkg-config 路径
-        export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH
-        export LD_LIBRARY_PATH=$PREFIX/lib:$LD_LIBRARY_PATH
+        # 设置环境变量
+        export PKG_CONFIG="aarch64-linux-gnu-pkg-config"
+        export PKG_CONFIG_PATH="${{ env.INSTALL_PREFIX }}/lib/pkgconfig:/usr/aarch64-linux-gnu/lib/pkgconfig"
+        export LD_LIBRARY_PATH="${{ env.INSTALL_PREFIX }}/lib:/usr/aarch64-linux-gnu/lib:$LD_LIBRARY_PATH"
+        export CFLAGS="-mcpu=cortex-a55 -mtune=cortex-a55 -fPIC"
+        export CXXFLAGS="-mcpu=cortex-a55 -mtune=cortex-a55 -fPIC"
+        export LDFLAGS="-Wl,-rpath-link,${{ env.INSTALL_PREFIX }}/lib -Wl,-rpath-link,/usr/aarch64-linux-gnu/lib"
         
-        # 配置 wiliwili
+        # 创建构建目录
+        mkdir -p wiliwili_build && cd wiliwili_build
+        
+        # 配置 wiliwili - 重要：启用桌面模式、SDL2 和 OpenGL ES
         cmake .. \
-          -DCMAKE_SYSTEM_NAME=Linux \
-          -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-          -DCMAKE_C_COMPILER=$CC \
-          -DCMAKE_CXX_COMPILER=$CXX \
-          -DCMAKE_AR=$AR \
-          -DCMAKE_FIND_ROOT_PATH=$SYSROOT:$PREFIX \
-          -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
-          -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-          -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
-          -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
-          -DCMAKE_PREFIX_PATH=$PREFIX \
-          -DCMAKE_INSTALL_PREFIX=$PREFIX \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DSDL2_DIR=$PREFIX/lib/cmake/SDL2 \
+          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/toolchain.cmake \
+          -DCMAKE_INSTALL_PREFIX=${{ env.INSTALL_PREFIX }} \
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+          -DCMAKE_PREFIX_PATH="${{ env.INSTALL_PREFIX }}" \
+          -DCMAKE_MODULE_PATH="${{ env.INSTALL_PREFIX }}/lib/cmake" \
+          # 关键选项：启用桌面平台
+          -DPLATFORM_DESKTOP=ON \
+          # 图形后端：使用 SDL2 + OpenGL ES
           -DWILIWILI_USE_SDL2=ON \
           -DWILIWILI_USE_OPENGL=OFF \
           -DWILIWILI_USE_OPENGL_ES=ON \
           -DWILIWILI_USE_VULKAN=OFF \
+          # MPV 支持
           -DWILIWILI_USE_MPV=ON \
-          -DPLATFORM_DESKTOP=OFF \
-          -DCMAKE_EXE_LINKER_FLAGS="-Wl,-rpath,$PREFIX/lib -L$PREFIX/lib" \
-          -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-rpath,$PREFIX/lib"
+          # 其他选项
+          -DWILIWILI_ENABLE_TESTS=OFF \
+          -DWILIWILI_ENABLE_EXAMPLES=OFF \
+          -DBUILD_SHARED_LIBS=ON \
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+          # 链接器设置
+          -DCMAKE_EXE_LINKER_FLAGS="-Wl,-rpath,${{ env.INSTALL_PREFIX }}/lib -L${{ env.INSTALL_PREFIX }}/lib" \
+          -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-rpath,${{ env.INSTALL_PREFIX }}/lib" \
+          # SDL2 配置
+          -DSDL2_DIR=${{ env.INSTALL_PREFIX }}/lib/cmake/SDL2
         
+        # 构建
         make -j$(nproc) VERBOSE=1
+        
+        # 检查输出
+        echo "构建完成，检查可执行文件："
+        if [ -f "wiliwili" ]; then
+          file wiliwili
+          echo "文件大小："
+          ls -lh wiliwili
+          echo "动态库依赖："
+          aarch64-linux-gnu-ldd wiliwili 2>/dev/null || echo "ldd检查失败，继续..."
+        else
+          echo "错误：未找到可执行文件 wiliwili"
+          ls -la
+          exit 1
+        fi
 
-    # 8) 检查生成的可执行文件
-    - name: Check binary
+    # 8) 测试可执行文件
+    - name: Test binary
       run: |
-        cd ${{ github.workspace }}/build
+        cd ${{ github.workspace }}/wiliwili_build
+        
+        # 检查是否可以运行（使用 qemu 模拟）
+        echo "检查可执行文件架构："
         file wiliwili
-        echo "Checking dependencies:"
-        aarch64-linux-gnu-ldd wiliwili || true
-        echo "Binary size:"
-        ls -lh wiliwili
+        
+        echo "尝试使用 qemu 运行测试："
+        # 安装 qemu 用于测试
+        sudo apt install -y qemu-user qemu-user-static
+        
+        # 复制必要的库
+        mkdir -p test_libs
+        cp -L /usr/aarch64-linux-gnu/lib/libc.so.6 test_libs/ 2>/dev/null || true
+        cp -L /usr/aarch64-linux-gnu/lib/ld-linux-aarch64.so.1 test_libs/ 2>/dev/null || true
+        
+        # 设置 qemu 环境
+        export QEMU_LD_PREFIX=/usr/aarch64-linux-gnu
+        
+        # 简单测试（不实际运行，只检查是否能加载）
+        echo "测试二进制文件能否被识别："
+        qemu-aarch64-static -version
+        echo "测试 wiliwili 二进制："
+        qemu-aarch64-static -E LD_LIBRARY_PATH=${{ env.INSTALL_PREFIX }}/lib:/usr/aarch64-linux-gnu/lib \
+          ./wiliwili --help 2>&1 | head -20 || true
 
-    # 9) 打包所有必要文件
+    # 9) 打包制品
     - name: Package artifacts
       run: |
         cd ${{ github.workspace }}
+        
+        # 创建分发目录
         mkdir -p dist/rg35xxpro
+        mkdir -p dist/rg35xxpro/lib
         
         # 复制可执行文件
-        cp build/wiliwili dist/rg35xxpro/
+        cp wiliwili_build/wiliwili dist/rg35xxpro/
+        chmod +x dist/rg35xxpro/wiliwili
         
-        # 复制必要的库
-        mkdir -p dist/rg35xxpro/lib
-        cp -r install/lib/*.so* dist/rg35xxpro/lib/ 2>/dev/null || true
+        # 复制必要的动态库
+        echo "复制动态库..."
+        
+        # 获取 wiliwili 依赖的库
+        LIBS=$(aarch64-linux-gnu-ldd wiliwili_build/wiliwili 2>/dev/null | grep "=> /" | awk '{print $3}' || true)
+        
+        for lib in $LIBS; do
+          if [ -f "$lib" ]; then
+            cp -L "$lib" dist/rg35xxpro/lib/ 2>/dev/null || true
+          fi
+        done
+        
+        # 复制我们构建的库
+        cp -L ${{ env.INSTALL_PREFIX }}/lib/libSDL2*.so* dist/rg35xxpro/lib/ 2>/dev/null || true
+        cp -L ${{ env.INSTALL_PREFIX }}/lib/libmpv*.so* dist/rg35xxpro/lib/ 2>/dev/null || true
         
         # 创建启动脚本
-        cat > dist/rg35xxpro/start.sh << 'EOF'
+        cat > dist/rg35xxpro/launch.sh << 'EOF'
         #!/bin/bash
-        export LD_LIBRARY_PATH=./lib:$LD_LIBRARY_PATH
-        export SDL_VIDEODRIVER=fbcon
-        export SDL_AUDIODRIVER=alsa
-        ./wiliwili
+        # wiliwili 启动脚本 for RG35XX Pro
+        
+        # 设置库路径
+        export LD_LIBRARY_PATH="./lib:$LD_LIBRARY_PATH"
+        
+        # SDL2 配置
+        # 对于 RG35XX Pro，可以尝试不同的视频驱动
+        # export SDL_VIDEODRIVER=fbcon    # 帧缓冲控制台
+        # export SDL_VIDEODRIVER=kmsdrm   # KMS/DRM
+        # export SDL_VIDEODRIVER=x11      # X11 (如果在桌面环境)
+        
+        # 音频驱动
+        export SDL_AUDIODRIVER=alsa      # ALSA 音频
+        
+        # OpenGL ES 配置
+        export MESA_GL_VERSION_OVERRIDE=3.0
+        export MESA_GLES_VERSION_OVERRIDE=3.0
+        
+        # 运行 wiliwili
+        echo "启动 wiliwili..."
+        echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+        echo "SDL_VIDEODRIVER: ${SDL_VIDEODRIVER:-auto}"
+        
+        ./wiliwili "$@"
         EOF
-        chmod +x dist/rg35xxpro/start.sh
         
-        # 创建说明文件
-        cat > dist/rg35xxpro/README.txt << 'EOF'
-        wiliwili for RG35XX Pro (aarch64)
-        =================================
+        chmod +x dist/rg35xxpro/launch.sh
         
-        1. 将所有文件复制到 RG35XX Pro 的 SD 卡
-        2. 确保设备已开启 SSH 或通过其他方式访问
-        3. 运行: chmod +x start.sh
-        4. 运行: ./start.sh
+        # 创建 README
+        cat > dist/rg35xxpro/README.md << 'EOF'
+        # wiliwili for RG35XX Pro
         
-        依赖:
-        - SDL2 2.30.3
-        - MPV 0.36.0
-        - OpenGL ES 2.0
+        ## 构建信息
+        - 目标平台: aarch64 (ARM64)
+        - CPU: Cortex-A55
+        - 图形后端: SDL2 + OpenGL ES
+        - 平台模式: 桌面 (PLATFORM_DESKTOP=ON)
+        - MPV 支持: 是
         
-        构建日期: $(date)
+        ## 运行要求
+        1. RG35XX Pro 设备
+        2. Linux 系统
+        3. 必要的系统库
+        
+        ## 使用方法
+        1. 将整个文件夹复制到 RG35XX Pro
+        2. 在终端中执行:
+           ```bash
+           chmod +x launch.sh
+           ./launch.sh
+           ```
+        
+        3. 如果无法启动，尝试不同的 SDL 视频驱动:
+           ```bash
+           export SDL_VIDEODRIVER=fbcon && ./launch.sh
+           # 或
+           export SDL_VIDEODRIVER=kmsdrm && ./launch.sh
+           # 或
+           export SDL_VIDEODRIVER=x11 && ./launch.sh
+           ```
+        
+        ## 注意事项
+        - 确保设备有足够的存储空间
+        - 首次运行可能需要配置
+        - 如果遇到权限问题，使用 chmod 修复
+        
+        构建时间: $(date)
         EOF
+        
+        # 创建版本信息
+        echo "构建配置：" > dist/rg35xxpro/build_info.txt
+        echo "PLATFORM_DESKTOP=ON" >> dist/rg35xxpro/build_info.txt
+        echo "WILIWILI_USE_SDL2=ON" >> dist/rg35xxpro/build_info.txt
+        echo "WILIWILI_USE_OPENGL_ES=ON" >> dist/rg35xxpro/build_info.txt
+        echo "WILIWILI_USE_MPV=ON" >> dist/rg35xxpro/build_info.txt
+        echo "构建类型: ${{ env.BUILD_TYPE }}" >> dist/rg35xxpro/build_info.txt
+        echo "架构: aarch64" >> dist/rg35xxpro/build_info.txt
+        
+        echo "打包完成！"
+        ls -la dist/rg35xxpro/
 
     # 10) 上传制品
-    - name: Upload artifact
+    - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: wiliwili-rg35xxpro-aarch64
+        name: wiliwili-rg35xxpro-aarch64-desktop
         path: ${{ github.workspace }}/dist/rg35xxpro/*
+        retention-days: 30
+
+    # 11) 上传构建日志
+    - name: Upload build logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-logs
+        path: |
+          ${{ github.workspace }}/SDL2/build/CMakeCache.txt
+          ${{ github.workspace }}/wiliwili_build/CMakeCache.txt
         retention-days: 7
