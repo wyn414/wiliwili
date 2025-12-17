@@ -9,25 +9,25 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - uses: actions/checkout@v4
+    # ---------- 1. 检出代码 ----------
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-    # ---------- 1. 安装 aarch64 交叉编译器 ----------
+    # ---------- 2. 安装 aarch64 交叉编译器和 GLES 头文件 ----------
     - name: Install aarch64 toolchain and GLES headers
-    run: |
-      sudo dpkg --add-architecture arm64
-      sudo apt update
-      sudo apt install -y \
-      gcc-aarch64-linux-gnu \
-      g++-aarch64-linux-gnu \
-      cmake \
-      ninja-build \
-      pkg-config \
-      libegl1-mesa-dev:arm64 \
-      libgles2-mesa-dev:arm64
+      run: |
+        sudo dpkg --add-architecture arm64
+        sudo apt update
+        sudo apt install -y \
+          gcc-aarch64-linux-gnu \
+          g++-aarch64-linux-gnu \
+          cmake \
+          ninja-build \
+          pkg-config \
+          libegl1-mesa-dev:arm64 \
+          libgles2-mesa-dev:arm64
 
-
-
-    # ---------- 2. 编译 SDL2（OpenGLES） ----------
+    # ---------- 3. 编译 SDL2 ----------
     - name: Build SDL2 (OpenGLES)
       run: |
         git clone https://github.com/libsdl-org/SDL.git
@@ -53,11 +53,10 @@ jobs:
         make -j$(nproc)
         make install
 
-    # ---------- 3. 编译 wiliwili ----------
+    # ---------- 4. 编译 wiliwili ----------
     - name: Build wiliwili
       run: |
         mkdir build && cd build
-
         cmake .. \
           -DCMAKE_SYSTEM_NAME=Linux \
           -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
@@ -70,7 +69,7 @@ jobs:
 
         make -j$(nproc)
 
-    # ---------- 4. 上传产物 ----------
+    # ---------- 5. 上传构建产物 ----------
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
