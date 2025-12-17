@@ -74,6 +74,8 @@ jobs:
           -DWILIWILI_USE_OPENGL=OFF \
           -DWILIWILI_USE_OPENGL_ES=ON \
           -DWILIWILI_USE_VULKAN=OFF
+          -DPLATFORM_DESKTOP=ON
+
 
         make -j$(nproc)
 
