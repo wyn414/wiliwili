@@ -15,13 +15,11 @@ jobs:
       MPV_DIR: ${{ github.workspace }}/mpv/install
 
     steps:
-    # ---------- 1. 检出代码及子模块 ----------
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         submodules: recursive
 
-    # ---------- 2. 安装 aarch64 交叉编译器和基础依赖 ----------
     - name: Install build dependencies
       run: |
         sudo apt update
@@ -47,12 +45,14 @@ jobs:
           autoconf automake libtool \
           wget
 
-    # ---------- 3. 编译 SDL2（OpenGLES） ----------
+    # ---------- Correct SDL2 build: checkout SDL2 branch and tag ----------
     - name: Build SDL2 (OpenGLES)
       run: |
         git clone --depth 1 https://github.com/libsdl-org/SDL.git SDL2
         cd SDL2
-        git checkout release-2.30.54
+        git fetch --depth 1 origin SDL2
+        git checkout SDL2
+        git checkout release-2.30.10
         mkdir build && cd build
         cmake .. \
           -DCMAKE_SYSTEM_NAME=Linux \
@@ -71,7 +71,6 @@ jobs:
         make -j$(nproc)
         make install
 
-    # ---------- 4. 下载并交叉编译 MPV ----------
     - name: Download and build MPV
       run: |
         wget https://github.com/mpv-player/mpv/archive/refs/tags/v1.36.0.tar.gz
@@ -100,7 +99,6 @@ jobs:
         ../waf build -j$(nproc)
         ../waf install
 
-    # ---------- 5. 编译 wiliwili ----------
     - name: Build wiliwili
       run: |
         mkdir build && cd build
@@ -117,7 +115,6 @@ jobs:
           -DWILIWILI_USE_MPV=ON
         make -j$(nproc)
 
-    # ---------- 6. 上传构建产物 ----------
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
