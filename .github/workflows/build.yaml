@@ -9,9 +9,11 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    # ---------- 1. 检出代码 ----------
+    # ---------- 1. 检出代码，并递归获取子模块 ----------
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
     # ---------- 2. 安装 aarch64 交叉编译器和基础依赖 ----------
     - name: Install aarch64 toolchain and build dependencies
