@@ -8,7 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 30
 
     steps:
     # 1) 检出代码
@@ -17,51 +17,58 @@ jobs:
       with:
         submodules: recursive
 
-    # 2) 安装最基本依赖
+    # 2) 安装依赖
     - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
           cmake \
           gcc-aarch64-linux-gnu \
-          g++-aarch64-linux-gnu
+          g++-aarch64-linux-gnu \
+          pkg-config \
+          libsdl2-dev \
+          libmpv-dev
 
-    # 3) 构建 wiliwili（只编译二进制文件）
-    - name: Build wiliwili binary
+    # 3) 构建 wiliwili
+    - name: Build wiliwili
       run: |
         cd ${{ github.workspace }}
-        
-        echo "=== 开始构建 wiliwili ==="
-        
-        # 创建构建目录
         mkdir -p build
         cd build
         
-        # 最简单直接的配置
+        echo "=== 开始构建 wiliwili ==="
+        
+        # 关键：必须设置 PLATFORM_DESKTOP=ON
+        # 并且使用 pkg-config 环境变量来帮助找到 SDL2
+        export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
+        
         cmake .. \
           -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
           -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
           -DCMAKE_BUILD_TYPE=Release \
-          # 必须设置平台目标
+          # 这是必须的！否则会报错
           -DPLATFORM_DESKTOP=ON \
-          # 图形后端
+          # SDL2 配置
           -DWILIWILI_USE_SDL2=ON \
           -DWILIWILI_USE_OPENGL=OFF \
           -DWILIWILI_USE_OPENGL_ES=ON \
           -DWILIWILI_USE_VULKAN=OFF \
-          # MPV支持
-          -DWILIWILI_USE_MPV=OFF
+          # MPV 配置
+          -DWILIWILI_USE_MPV=OFF \
+          # 使用系统库
+          -DUSE_SYSTEM_SDL2=ON
         
-        echo "编译..."
+        echo "编译中..."
         make -j$(nproc)
         
-        echo "构建完成！"
         if [ -f "wiliwili" ]; then
-          echo "✅ 成功生成二进制文件"
+          echo "✅ 构建成功！"
+          echo "文件信息："
           file wiliwili
+          echo "大小："
           ls -lh wiliwili
         else
-          echo "❌ 未找到 wiliwili 文件"
+          echo "❌ 构建失败"
           exit 1
         fi
 
@@ -69,6 +76,6 @@ jobs:
     - name: Upload binary
       uses: actions/upload-artifact@v4
       with:
-        name: wiliwili-binary-aarch64
+        name: wiliwili-aarch64
         path: ${{ github.workspace }}/build/wiliwili
         retention-days: 30
