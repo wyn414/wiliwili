@@ -52,7 +52,8 @@ jobs:
       run: |
         git clone --depth 1 https://github.com/libsdl-org/SDL.git SDL2
         cd SDL2
-        git checkout release-2.30.x
+        # checkout 最新稳定 SDL2 2.30 系列 tag
+        git checkout release-2.30.9
         mkdir build && cd build
         cmake .. \
           -DCMAKE_SYSTEM_NAME=Linux \
@@ -71,7 +72,7 @@ jobs:
         make -j$(nproc)
         make install
 
-    # ---------- 4. 下载并编译 MPV ----------
+    # ---------- 4. 下载并交叉编译 MPV ----------
     - name: Download and build MPV
       run: |
         wget https://github.com/mpv-player/mpv/archive/refs/tags/v1.36.0.tar.gz
